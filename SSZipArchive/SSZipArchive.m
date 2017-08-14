@@ -334,6 +334,8 @@ NSString *const SSZipArchiveErrorDomain = @"SSZipArchiveErrorDomain";
             //end by skyfox
             
             BOOL isDirectory = NO;
+            BOOL targetIsDirectory = NO;
+
             if (filename[fileInfo.size_filename-1] == '/' || filename[fileInfo.size_filename-1] == '\\') {
                 isDirectory = YES;
             }
@@ -368,11 +370,29 @@ NSString *const SSZipArchiveErrorDomain = @"SSZipArchiveErrorDomain";
                 NSLog(@"[SSZipArchive] Error: %@", err.localizedDescription);
             }
             
-            if ([fileManager fileExistsAtPath:fullPath] && !isDirectory && !overwrite) {
-                //FIXME: couldBe CRC Check?
-                unzCloseCurrentFile(zip);
-                ret = unzGoToNextFile(zip);
-                continue;
+            if ([fileManager fileExistsAtPath:fullPath isDirectory:&targetIsDirectory]) {
+                if (!isDirectory && !overwrite) {
+                    //FIXME: couldBe CRC Check?
+                    unzCloseCurrentFile(zip);
+                    ret = unzGoToNextFile(zip);
+                    continue;
+                }
+                // for June20 if doing overwrite need to clean out all old possible entries.
+                else if (overwrite && !(isDirectory && targetIsDirectory)) {
+                    //TODO: Avoid removing if both the target and source are directories--June20 package delivery
+                    // semantics include delivery of partial directory contents, so deleting first would remove
+                    // existing files.
+                    NSError *error = nil;
+                    BOOL success = [fileManager removeItemAtPath:fullPath error:&error];
+                    if (!success)
+                    {
+                        NSString *message = [NSString stringWithFormat:@"Failed to delete existing file at \"%@\"", error.localizedDescription];
+                        NSLog(@"[SSZipArchive] %@", message);
+                        success = NO;
+                        unzippingError = [NSError errorWithDomain:SSZipArchiveErrorDomain code:error.code userInfo:@{NSLocalizedDescriptionKey: message}];
+                    }
+                    
+                }
             }
             
             if (!fileIsSymbolicLink) {
