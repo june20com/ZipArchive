@@ -348,6 +348,39 @@ NSString *const SSZipArchiveErrorDomain = @"SSZipArchiveErrorDomain";
             
             NSString *fullPath = [destination stringByAppendingPathComponent:strPath];
             NSError *err = nil;
+            //for overwriting,
+            if ([fileManager fileExistsAtPath:fullPath isDirectory:&targetIsDirectory]) {
+                if (!isDirectory && !overwrite) {
+                    //FIXME: couldBe CRC Check?
+                    unzCloseCurrentFile(zip);
+                    ret = unzGoToNextFile(zip);
+                    continue;
+                }
+                // for June20 if doing overwrite need to clean out all old possible entries.
+                else if (overwrite && !(isDirectory && targetIsDirectory)) {
+                    //TODO: Avoid removing if both the target and source are directories--June20 package delivery
+                    // semantics include delivery of partial directory contents, so deleting first would remove
+                    // existing files.
+                    NSError *error = nil;
+                    BOOL success = [fileManager removeItemAtPath:fullPath error:&error];
+                                        
+                    if (!success)
+                    {
+                        NSInteger code = 0;
+                        NSString *localizedDescription = @"Unknown reason";
+                        
+                        if (error != nil) {
+                            code = error.code;
+                            localizedDescription = error.localizedDescription;
+                        }
+                        NSString *message = [NSString stringWithFormat:@"Failed to delete existing file at \"%@\"", localizedDescription];
+                        NSLog(@"[SSZipArchive] %@", message);
+                        success = NO;
+                        unzippingError = [NSError errorWithDomain:SSZipArchiveErrorDomain code:code userInfo:@{NSLocalizedDescriptionKey: message}];
+                    }
+                    
+                }
+            }
             NSDictionary *directoryAttr;
             if (preserveAttributes) {
                 NSDate *modDate = [[self class] _dateWithMSDOSFormat:(UInt32)fileInfo.dosDate];
@@ -370,30 +403,7 @@ NSString *const SSZipArchiveErrorDomain = @"SSZipArchiveErrorDomain";
                 NSLog(@"[SSZipArchive] Error: %@", err.localizedDescription);
             }
             
-            if ([fileManager fileExistsAtPath:fullPath isDirectory:&targetIsDirectory]) {
-                if (!isDirectory && !overwrite) {
-                    //FIXME: couldBe CRC Check?
-                    unzCloseCurrentFile(zip);
-                    ret = unzGoToNextFile(zip);
-                    continue;
-                }
-                // for June20 if doing overwrite need to clean out all old possible entries.
-                else if (overwrite && !(isDirectory && targetIsDirectory)) {
-                    //TODO: Avoid removing if both the target and source are directories--June20 package delivery
-                    // semantics include delivery of partial directory contents, so deleting first would remove
-                    // existing files.
-                    NSError *error = nil;
-                    BOOL success = [fileManager removeItemAtPath:fullPath error:&error];
-                    if (!success)
-                    {
-                        NSString *message = [NSString stringWithFormat:@"Failed to delete existing file at \"%@\"", error.localizedDescription];
-                        NSLog(@"[SSZipArchive] %@", message);
-                        success = NO;
-                        unzippingError = [NSError errorWithDomain:SSZipArchiveErrorDomain code:error.code userInfo:@{NSLocalizedDescriptionKey: message}];
-                    }
-                    
-                }
-            }
+           
             
             if (!fileIsSymbolicLink) {
                 // ensure we are not creating stale file entries
